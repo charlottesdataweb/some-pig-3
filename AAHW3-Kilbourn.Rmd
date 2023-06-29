@@ -1,0 +1,271 @@
+---
+title: "AAHW3 - Kilbourn"
+author: "CJK"
+date: "2023-06-26"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+Homework 3 - R Portion
+
+This is in response to question 2. The prompt was:
+2.	Build an optimal Lasso, Ridge, or ElasticNet logistic regression model using the `attrition` data we used for class that includes a “penalty” and “mixture” parameter. I’ll leave it up to you to determine what “optimal” means. 
+
+
+So the first step is to load the attrition data set (note that because this is under a different project in order to connect it to github, I will need to import the dataset again so it's compatible with git and with this markdown file, even though I have already imported this dataset through another project).
+```{r}
+library(readxl)
+WA_Fn_UseC_HR_Employee_Attrition <- read_excel("WA_Fn-UseC_-HR-Employee-Attrition.xlsx")
+View(WA_Fn_UseC_HR_Employee_Attrition)
+```
+
+
+Also, the name of the dataset is crazy long, so I will shorten it to just data for now
+```{r}
+data <- WA_Fn_UseC_HR_Employee_Attrition
+```
+
+I will call the tidyverse package - I may need other packages later on, but this one will be sufficient to get me started
+```{r}
+library(tidyverse)
+```
+
+And I have already dome some exploratory 'poking' at this data, but I will run a couple of functions just to refamiliarize myself with what I'm working with. First, I will glimpse the data.
+```{r}
+glimpse(data)
+```
+Then I'll get a better look at the column names.
+```{r}
+colnames(data)
+```
+
+And I remember there being no missing data, but I will double check this just to be certain.
+```{r}
+apply(is.na(data), 2, sum)
+```
+
+So there's no missing data, and there are 35 total variables. I will now go into the regularization (shrinking) methods: ridge regression, lasso, and elasticnet. The concept behind regularization is to shrink the coefficient estimates of predictor variables. This is useful if a model has a large number of predictors since R squared will always increase as the number of predictors increases, but a model with a large number of predictors is likely to include some predictors that are not 'pulling their weight' in the model (ie, they don't have strong predictive power) and the goal, when possible, is parsimony. We want to find the model with predictive power and good fit that includes the least number of predictors possible.
+35 is a pretty hefty number of predictors, so let's explore which methods of regularization provide us with the best fitting model to move forward with.
+
+
+I will experiment with a ridge regression first. The way to create a ridge regression model specification is via the linear_reg() function and setting the mixture to 0 (this will be very similar to lasso except the mixture will be set to 1, and the elasticnet in which the number will be between 0 and 1 indicating a blend of ridge and lasso).
+For now, my penalty is set to 0 because I don't have any knowledge or information at this time to make a more informed selection - that will come later.
+I will also call the glmnet and parsnip packages.
+Note that I adjusted the code to reflect that this is a logistic regression (logistic_reg) and that my mode should be set to classification.
+```{r}
+library(parsnip)
+library(glmnet)
+ridge_spec <- logistic_reg(mixture = 0, penalty = 0) %>%
+  set_mode("classification") %>%
+  set_engine("glmnet")
+```
+
+I will now fit the ridge regression to my data. Just to remind myself, I am currently looking at Attrition as my outcome variable and all other variables as my predictors.
+```{r, eval=FALSE}
+ridge_fit <- fit(ridge_spec, Attrition ~ ., data = data)
+```
+So I learned something! In the code above, the error stated that 'contrasts can be applied only to factors with 2 or more levels. I remember from exploring this data before that some of the predictors had the exact same responses across all respondents. This may be the problem. I will look at which of these factors fit this description and create a new dataframe with the remaining predictors only.
+
+First, I will look at character (non-qualitative) variables.
+```{r}
+library(conflicted)
+conflict_prefer("filter", "dplyr")
+
+data %>%
+    select_if(is.character) %>%
+    map(unique)
+```
+
+The Over18 variable is a problem. 
+
+Now I will look at numeric variables
+```{r}
+data %>%
+    select_if(is.numeric) %>%
+    map(~ unique(.) %>% length())
+```
+
+EmployeeCount and StandardHours are also problematic.
+
+
+
+There are a couple different methods for handling these three variables. Because ridge regression is new to me, I'm not sure if there is a preferred handling method (I experimented with creating a recipe using the step_zv() function, but I wasn't sure if that was overcomplicating things). So for now, I used the select function to create a new dataframe called newdata that does not include the three non-variance variables.
+```{r}
+newdata <- data %>% select(-Over18,-EmployeeCount,-StandardHours)
+```
+
+I also discovered through trial and error (didn't leave all the error and wrong codes because they would be a mile long) that something needed to be adjusted for my outcome variable as well. I received some words of wisdom that my outcome variable needed to be set as a factor instead of a character, so I will do this now.
+```{r}
+newdata$Attrition <- factor(newdata$Attrition)
+```
+
+And I will confirm that it is, indeed, a character now.
+```{r}
+is.factor(newdata$Attrition)
+```
+
+
+And now, with my revised dataset, I will try to fit my ridge regression.
+```{r}
+ridge_fit <- fit(ridge_spec, Attrition ~ ., data = newdata)
+```
+
+That worked! Now I will use the tidy function to look at the estimates for each variable. Note that the penalty is at 0 for all of them because I haven't tuned the penalty yet (since I don't have the info yet to tune it).
+```{r}
+tidy(ridge_fit)
+```
+
+Notice in the plot how all coefficients trend toward 0. This is what ridge regression was designed to do, so that's what we want to see.
+```{r}
+plot(ridge_fit$fit, xvar = "lambda")
+```
+
+Now I will split the data into my training set and my test set. I will use the strata argument to split my data based on Attrition, since it is an unbalanced sample (far more people staying than quitting).
+I will call the tidymodels package for the splitting and cross-validation fold-making process.
+```{r}
+library(tidymodels)
+data_split <- initial_split(newdata, strata = "Attrition")
+data_train <- training(data_split)
+data_test <- testing(data_split)
+data_fold <- vfold_cv(data_train, v = 10)
+```
+
+Now I can create a recipe for my ridge regression and ensure that all necessary preprocessing for my training data is taking place, including building dummy variables, normalizing predictors, etc.
+```{r}
+ridge_recipe <- 
+  recipe(formula = Attrition ~ ., data = data_train) %>% 
+  step_novel(all_nominal_predictors()) %>% 
+  step_dummy(all_nominal_predictors()) %>% 
+  step_zv(all_predictors()) %>% 
+  step_normalize(all_predictors())
+```
+
+And I will adjust my ridge specification to now be set to 'penalty = tune()' so the tune grid knows the penalty parameter should be tuned.
+```{r}
+ridge_spec <- logistic_reg(mixture = 0, penalty = tune()) %>%
+  set_mode("classification") %>%
+  set_engine("glmnet")
+```
+
+And I can create my workflow, adding my recipe and model set to ridge.
+```{r}
+ridge_workflow <- workflow() %>% 
+  add_recipe(ridge_recipe) %>% 
+  add_model(ridge_spec)
+```
+
+I will now create a penalty grid to determine the value(s) of the penalty. The code below will create a grid of evenly spaced parameter values. Since I don't have any prior information about what values will work, I will set the levels to 50 to cast a wider net for this go-around.
+```{r}
+penalty_grid <- grid_regular(penalty(range = c(-5, 5)), levels = 50)
+penalty_grid
+```
+
+That gives me what I need to fit the model to everything I have specified so far. This is my v-fold cross-validation in action.
+```{r}
+tune_res <- tune_grid(
+  ridge_workflow,
+  resamples = data_fold, 
+  grid = penalty_grid
+)
+tune_res
+```
+I will visualize this more easily with the autoplot() function. 
+```{r}
+autoplot(tune_res)
+```
+One thing to note that is different from the autoplot results of a linear regression is that the metrics from the plot are different. In a linear model, the metrics will be RMSE (which we want to be low) and Rsquared (which we want to be high). However, since I am dealing with a logistic model, I have accuracy (which we want to be high) and area under the curve, AUC (which we want to be high). Already, I'm seeing problems with ridge regression here. Both accuracy and AUC get lower as the amount of regularization increases. This is an indication that ridge is not a good option for regularization - I suspected this would be the case, since the general advice is that ridge is not suitable for a logistic model. But since I am experimenting and getting to know these different functions, I will proceed.
+
+I can collect raw data about these metrics here. The same pattern emerges (both accuracy and AUC decreasing with a higher penalty).
+```{r}
+collect_metrics(tune_res)
+```
+
+Knowing that ridge is probably not what I will ultimately choose, I can still select the optimal penalty (it will probably be quite low) for ridge. I can do this according to either of the two metrics: accuracy or AUC. I chose AUC.
+```{r}
+best_penalty_auc <- select_best(tune_res, metric = "roc_auc")
+best_penalty_auc
+```
+
+I will now apply this best-fit penalty to my workflow.
+```{r}
+ridge_final <- finalize_workflow(ridge_workflow, best_penalty_auc)
+ridge_final_fit <- fit(ridge_final, data = data_train)
+```
+
+And I will see how well this performs with my testing set.
+```{r}
+augment(ridge_final_fit, new_data = data_test) %>%
+    roc_auc(truth = Attrition, .pred_Yes, event_level = "second")
+```
+
+After some trial and error with the augment code, I got this to work. I am not sure if I can fully trust the results, but the estimate I got was 0.834. I will compare this to lasso and see how things look there.
+
+My code for lasso will look quite similar to ridge, except that when I specify the model, I will set my mixture to 1 instead of 0 (1 denotes lasso, 0 denotes ridge, and anything between 0 and 1 denotes an elasticnet).
+
+First things first, I will build my recipe. Once more, I want to normalize my predictors, ensure the setup of dummy variables, etc.
+```{r}
+lasso_recipe <- 
+  recipe(formula = Attrition ~ ., data = data_train) %>% 
+  step_novel(all_nominal_predictors()) %>% 
+  step_dummy(all_nominal_predictors()) %>% 
+  step_zv(all_predictors()) %>% 
+  step_normalize(all_predictors())
+```
+
+Now I will create my lasso specification.
+```{r}
+lasso_spec <- 
+  logistic_reg(penalty = tune(), mixture = 1) %>% 
+  set_mode("classification") %>% 
+  set_engine("glmnet") 
+lasso_workflow <- workflow() %>% 
+  add_recipe(lasso_recipe) %>% 
+  add_model(lasso_spec)
+```
+
+And I will set up my penalty grid to determine what the penalty value should be.
+```{r}
+penalty_grid <- grid_regular(penalty(range = c(-2, 2)), levels = 50)
+```
+
+I will now tune and check out the autoplot to visualize the results.
+```{r}
+tune_res <- tune_grid(
+  lasso_workflow,
+  resamples = data_fold, 
+  grid = penalty_grid
+)
+autoplot(tune_res)
+```
+Once more, there seems to be a decrease in both accuracy and AUC. Maybe this is normal for logistic? I'm not totally sure how to interpret this, so I will flag this to ask clarifying questions about it later on. For now, I will tune the penalty value the same way I did for ridge, using the AUC.
+
+```{r}
+best_penalty_auc <- select_best(tune_res, metric = "roc_auc")
+best_penalty_auc
+```
+
+And I will finalize fitting my lasso with the tuned penalty to my workflow.
+```{r}
+lasso_final <- finalize_workflow(lasso_workflow, best_penalty_auc)
+lasso_final_fit <- fit(lasso_final, data = data_train)
+```
+
+And I can see how well the lasso specification performs.
+```{r}
+augment(ridge_final_fit, new_data = data_test) %>%
+    roc_auc(truth = Attrition, .pred_Yes, event_level = "second")
+
+```
+
+I got a value of 0.838. Only slightly better than ridge regression. However, based on the reading I have done on ridge regression with logistic models, I will probably proceed with lasso as the top contender so far.
+
+Now last but not least, I will take a look at elasticnet, which is a blend of ridge and lasso. Based on what I've read, elasticnet is a suitable option for logistic.
+
+```{r}
+
+```
+
