@@ -50,7 +50,7 @@ apply(is.na(data), 2, sum)
 So there's no missing data, and there are 35 total variables. I will now go into the regularization (shrinking) methods: ridge regression, lasso, and elasticnet. The concept behind regularization is to shrink the coefficient estimates of predictor variables. This is useful if a model has a large number of predictors (and we're not sure which ones are useful and which ones are not 'pulling their weight') since a model will generally perform 'better' as the number of predictors increases, regardless of the usefulness of any and all predictors. So if a model has 100 variables but only 8 are responsible for the majority of effective performance of the model, regularization methods will show a significant drop-off in the decrease of effectiveness in the non-useful 92 variables. It is important to remember that the goal is parsimony, wanting to find the best performing model with strong predictive power and good fit that also includes the lowest quantity of predictor variables.
 The methods of ridge, lasso, and elasticnet vary slightly in their regularization processes, but they all shrink the coefficients of the predictors. Ridge shrinks toward 0 but never gets to 0, lasso can shrink coefficients to 0, and elasticnet combines elements of both ridge and lasso.
 
-35 is a pretty hefty number of predictors, so I will now explore which methods of regularization provide us with the best fitting model to move forward with.
+And 35 is a pretty hefty number of predictors, (especially when my goal is to be able to tell key business leaders what ‘levers’ to pull to have an influence on attrition), so I will now explore which methods of regularization provide us with the best fitting model to move forward with.
 
 I will experiment with a ridge regression first. I did some research on a few blogs, and I did find that ridge is not recommended for logistic models, however, I will proceed with running a ridge just to get the experience with it (and see, comparatively, how it performs with other regularization processes).
 
@@ -186,7 +186,7 @@ I will visualize this more easily with the autoplot() function.
 ```{r}
 autoplot(tune_res)
 ```
-One interesting trend to note is that B=both accuracy and my ROC area under the curve (AUC) actually decrease as the amount of regularization increases. I want both accuracy and AUC to be as high as possible. This could possibly be due to the fact that ridge regression is not recommended for logistic models, or it could be due to other factors like the regularization increasing bias and/or information loss from the coefficients approaching 0.
+One interesting trend to note is that both accuracy and my ROC area under the curve (AUC) actually decrease as the amount of regularization increases. I want both accuracy and AUC to be as high as possible. This could possibly be due to the fact that ridge regression is not recommended for logistic models, or it could be due to other factors like the regularization increasing bias and/or information loss from the coefficients approaching 0.
 
 Regardless, this helps me visualize the process of regularization, and how changing the value for my penalty will change the metrics of my model. I will also expect the optimal penalty to be quite low (since the higher penalty decreases both accuracy and AUC).
 
@@ -319,7 +319,6 @@ tune_res <- tune_grid(
 )
 autoplot(tune_res)
 ```
-Still decreases in accuracy and AUC. Perhaps this is normal? I will definitely need to ask to gain more clarity on this.
 
 Now once more, I will use AUC to determine the optimal penalty for my elasticnet specification.
 ```{r}
