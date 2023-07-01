@@ -398,3 +398,5 @@ Performance of 0.811
 
 Also, I did some sleuthing to see if there was a method for determining which variables would be removed for 'underperforming' in either a lasso or elasticnet specification, but I was not able to get any of the code to work. I will note this as a question to ask later, and I will continue exploring potential options to find these results in the meantime.
 
+Additionally, I attempted to find a workable code to gather confusion matrices for the different regularization options, but I unfortunately was not able to find one that worked. The conf_mat() function did not work, but I could be inputting the variables incorrectly. I think this would help me better determine the performance of each option, so I hope to learn more about how to access this information in the near future.
+
